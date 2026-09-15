@@ -62,7 +62,7 @@ class QueryResponse(BaseModel):
     context_chunks_used: int | None = None
     provider: str | None = None
     model: str | None = None
-    response_time_ms: int | None = None
+    response_time_ms: float | None = None
 
 
 class MessageOut(BaseModel):
