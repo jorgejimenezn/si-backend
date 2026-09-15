@@ -1,4 +1,4 @@
-# Software Intelligence — Backend
+# si-backend — Software Intelligence
 
 Backend en FastAPI para la plataforma RAG de consulta de proyectos de software.
 Cubre: creación de usuarios, autenticación JWT con expiración por inactividad (20 min)
