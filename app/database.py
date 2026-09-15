@@ -6,6 +6,7 @@ db = client[settings.mongo_db_name]
 
 users_collection = db["users"]
 sessions_collection = db["sessions"]
+login_history_collection = db["login_history"]
 
 
 async def ensure_indexes():
@@ -15,3 +16,8 @@ async def ensure_indexes():
     # TTL de respaldo: si una sesion queda huerfana, Mongo la borra sola
     # a las 24h (mismo valor que la expiracion dura del JWT).
     await sessions_collection.create_index("created_at", expireAfterSeconds=60 * 60 * 24)
+
+    # Historial de logeos: nunca se borra automaticamente (es auditoria).
+    # Indices para poder consultar rapido por usuario o por fecha.
+    await login_history_collection.create_index([("email", 1), ("timestamp", -1)])
+    await login_history_collection.create_index("timestamp")
