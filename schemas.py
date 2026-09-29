@@ -154,6 +154,17 @@ class IngestionOut(BaseModel):
     created_at: datetime
 
 
+class ActivityEventOut(BaseModel):
+    type: str  # "project_created" | "document" | "repository"
+    # project_id/project_name/source solo se llenan para un admin; un usuario
+    # regular solo recibe el tipo de evento y la fecha (aviso genérico, sin
+    # detalle a consultar).
+    project_id: str | None = None
+    project_name: str | None = None
+    source: str | None = None  # nombre(s) de archivo o repository_url; None para project_created
+    created_at: datetime
+
+
 class CompareRequest(BaseModel):
     project_id: str
     repository_url: str
