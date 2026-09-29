@@ -7,7 +7,8 @@ from pymongo.errors import DuplicateKeyError
 
 from app.database import projects_collection
 from app.dependencies import get_current_user, require_admin
-from app.schemas import ProjectCreate, ProjectOut, ProjectUpdate
+from app.rag_client import RagApiError, delete_project_index
+from app.schemas import ProjectCreate, ProjectIndexDeleteOut, ProjectOut, ProjectUpdate
 
 router = APIRouter(prefix="/api/v1/projects", tags=["Proyectos"])
 
@@ -86,11 +87,37 @@ async def update_project(
     return _project_to_out(doc)
 
 
+@router.delete("/{project_id}/index", response_model=ProjectIndexDeleteOut)
+async def delete_project_index_endpoint(
+    project_id: str, current_user: dict = Depends(require_admin)
+):
+    """Vacía el índice del RAG (fragmentos y embeddings) de un proyecto, sin borrarlo
+    del catálogo — útil para re-indexar desde cero sin perder el project_id/nombre.
+    Solo admin."""
+    project = await projects_collection.find_one({"project_id": project_id})
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Proyecto no encontrado")
+
+    try:
+        result = await delete_project_index(project_id)
+    except RagApiError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+
+    return ProjectIndexDeleteOut(**result)
+
+
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(project_id: str, current_user: dict = Depends(require_admin)):
-    """Solo admin. No borra documentos/embeddings ya indexados en el RAG,
-    solo lo quita del catálogo del backend."""
+    """Solo admin. Borra el proyecto del catálogo del backend y, de paso, intenta
+    vaciar su índice en el RAG (fragmentos/embeddings) para no dejar basura huérfana.
+    Si el RAG no responde, igual se borra del catálogo (best-effort)."""
     result = await projects_collection.delete_one({"project_id": project_id})
     if result.deleted_count == 0:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Proyecto no encontrado")
+
+    try:
+        await delete_project_index(project_id)
+    except RagApiError:
+        pass  # el catálogo ya se borró; el índice huérfano no es accesible vía /query
+
     return None

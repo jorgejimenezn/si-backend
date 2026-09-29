@@ -65,6 +65,41 @@ class QueryResponse(BaseModel):
     response_time_ms: float | None = None
 
 
+class RagHealthOut(BaseModel):
+    status: str | None = None
+    database: str | None = None
+    vector_store: str | None = None
+    embedding_service: str | None = None
+    embedding_provider: str | None = None
+    embedding_model: str | None = None
+    llm_service: str | None = None
+    llm_provider: str | None = None
+    llm_model: str | None = None
+
+
+class RagMetricsOut(BaseModel):
+    total_queries: int | None = None
+    successful_queries: int | None = None
+    failed_queries: int | None = None
+    average_response_time_ms: float | None = None
+
+
+class BackendStatsOut(BaseModel):
+    total_users: int
+    total_projects: int
+    total_conversations: int
+    total_queries: int
+    average_response_time_ms: float | None = None
+
+
+class StatusOut(BaseModel):
+    rag: RagHealthOut | None = None
+    rag_error: str | None = None
+    rag_metrics: RagMetricsOut | None = None
+    rag_metrics_error: str | None = None
+    backend: BackendStatsOut
+
+
 class MessageOut(BaseModel):
     question: str
     answer: str
@@ -102,3 +137,40 @@ class ProjectOut(BaseModel):
     description: str | None = None
     created_by: str
     created_at: datetime
+
+
+class ProjectIndexDeleteOut(BaseModel):
+    project_id: str
+    deleted_chunks: int
+
+
+class CompareRequest(BaseModel):
+    project_id: str
+    repository_url: str
+    branch_a: str
+    branch_b: str
+    question: str = Field(
+        default="¿Qué diferencias relevantes existen entre estas dos ramas?", min_length=1
+    )
+
+
+class ChangeOut(BaseModel):
+    status: str | None = None
+    path: str | None = None
+    previous_path: str | None = None
+
+
+class CompareResponse(BaseModel):
+    conversation_id: str
+    project_id: str
+    repository: str | None = None
+    branch_a: str
+    branch_b: str
+    question: str
+    answer: str
+    changes: list[ChangeOut]
+    sources: list[SourceOut]
+    context_chunks_used: int | None = None
+    provider: str | None = None
+    model: str | None = None
+    response_time_ms: float | None = None

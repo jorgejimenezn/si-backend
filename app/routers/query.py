@@ -5,8 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.database import conversations_collection, messages_collection, projects_collection
 from app.dependencies import get_current_user
-from app.rag_client import RagApiError, query_rag
+from app.rag_client import RagApiError, compare_branches, query_rag
 from app.schemas import (
+    ChangeOut,
+    CompareRequest,
+    CompareResponse,
     ConversationOut,
     MessageOut,
     QueryRequest,
@@ -109,6 +112,69 @@ async def query(payload: QueryRequest, current_user: dict = Depends(get_current_
         project_id=payload.project_id,
         question=payload.question,
         answer=rag_response.get("answer", ""),
+        sources=[SourceOut(**s) for s in rag_response.get("sources", [])],
+        context_chunks_used=rag_response.get("context_chunks_used"),
+        provider=rag_response.get("provider"),
+        model=rag_response.get("model"),
+        response_time_ms=rag_response.get("response_time_ms"),
+    )
+
+
+@router.post("/compare", response_model=CompareResponse)
+async def compare(payload: CompareRequest, current_user: dict = Depends(get_current_user)):
+    """Diff real entre dos ramas de un repo, explicado por el RAG con evidencia de
+    los archivos modificados. Abierto a cualquier usuario autenticado (es una
+    consulta, igual que /query), no requiere admin."""
+    user_id = str(current_user["_id"])
+
+    project = await projects_collection.find_one({"project_id": payload.project_id})
+    if project is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Ese project_id no existe en el catálogo. Pide la lista con GET /api/v1/projects.",
+        )
+
+    try:
+        rag_response = await compare_branches(
+            project_id=payload.project_id,
+            repository_url=payload.repository_url,
+            branch_a=payload.branch_a,
+            branch_b=payload.branch_b,
+            question=payload.question,
+        )
+    except RagApiError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, exc.detail) from exc
+
+    # Se registra como una conversacion nueva (cumple "registrar las consultas
+    # realizadas"), consultable luego por GET /conversations y sus mensajes.
+    conversation_id = await _get_or_create_conversation(None, user_id, payload.project_id)
+    now = datetime.now(timezone.utc)
+    compare_label = f"[Comparar {payload.branch_a} vs {payload.branch_b}] {payload.question}"
+    await messages_collection.insert_one(
+        {
+            "conversation_id": conversation_id,
+            "user_id": user_id,
+            "project_id": payload.project_id,
+            "question": compare_label,
+            "answer": rag_response.get("answer", ""),
+            "sources": rag_response.get("sources", []),
+            "context_chunks_used": rag_response.get("context_chunks_used"),
+            "provider": rag_response.get("provider"),
+            "model": rag_response.get("model"),
+            "response_time_ms": rag_response.get("response_time_ms"),
+            "created_at": now,
+        }
+    )
+
+    return CompareResponse(
+        conversation_id=conversation_id,
+        project_id=payload.project_id,
+        repository=rag_response.get("repository"),
+        branch_a=payload.branch_a,
+        branch_b=payload.branch_b,
+        question=payload.question,
+        answer=rag_response.get("answer", ""),
+        changes=[ChangeOut(**c) for c in rag_response.get("changes", [])],
         sources=[SourceOut(**s) for s in rag_response.get("sources", [])],
         context_chunks_used=rag_response.get("context_chunks_used"),
         provider=rag_response.get("provider"),
