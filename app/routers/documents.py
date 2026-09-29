@@ -2,7 +2,8 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.config import settings
-from app.dependencies import get_current_user
+from app.dependencies import require_admin
+from app.database import projects_collection
 
 router = APIRouter(prefix="/api/v1/documents", tags=["Documentos"])
 
@@ -11,10 +12,18 @@ router = APIRouter(prefix="/api/v1/documents", tags=["Documentos"])
 async def ingest_documents(
     project_id: str = Form(...),
     files: list[UploadFile] = File(...),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_admin),
 ):
     """Recibe archivos del frontend y los reenvia al servicio RAG para indexarlos.
-    El frontend nunca llama directo al RAG; todo pasa por este backend."""
+    El frontend nunca llama directo al RAG; todo pasa por este backend.
+    Solo un admin puede subir documentos."""
+    project = await projects_collection.find_one({"project_id": project_id})
+    if project is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Ese project_id no existe. Créalo primero con POST /api/v1/projects.",
+        )
+
     multipart_files = []
     for f in files:
         content = await f.read()

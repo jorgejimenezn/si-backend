@@ -1,0 +1,96 @@
+import re
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
+
+from app.database import projects_collection
+from app.dependencies import get_current_user, require_admin
+from app.schemas import ProjectCreate, ProjectOut, ProjectUpdate
+
+router = APIRouter(prefix="/api/v1/projects", tags=["Proyectos"])
+
+
+def _slugify(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+    return slug or "proyecto"
+
+
+def _project_to_out(doc: dict) -> ProjectOut:
+    return ProjectOut(
+        project_id=doc["project_id"],
+        name=doc["name"],
+        description=doc.get("description"),
+        created_by=doc["created_by"],
+        created_at=doc["created_at"],
+    )
+
+
+@router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
+async def create_project(payload: ProjectCreate, current_user: dict = Depends(require_admin)):
+    """Crear un proyecto en el catálogo. Solo un admin puede hacerlo.
+    Los usuarios regulares solo pueden listar y elegir uno ya existente."""
+    project_id = payload.project_id.strip() if payload.project_id else _slugify(payload.name)
+
+    doc = {
+        "project_id": project_id,
+        "name": payload.name,
+        "description": payload.description,
+        "created_by": str(current_user["_id"]),
+        "created_at": datetime.now(timezone.utc),
+    }
+    try:
+        await projects_collection.insert_one(doc)
+    except DuplicateKeyError:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, f"Ya existe un proyecto con project_id='{project_id}'"
+        )
+
+    return _project_to_out(doc)
+
+
+@router.get("", response_model=list[ProjectOut])
+async def list_projects(current_user: dict = Depends(get_current_user)):
+    """Cualquier usuario autenticado puede ver el catálogo de proyectos y elegir uno
+    para preguntarle — esto es lo único que necesita un usuario regular."""
+    cursor = projects_collection.find({}).sort("created_at", -1)
+    docs = await cursor.to_list(length=None)
+    return [_project_to_out(d) for d in docs]
+
+
+@router.get("/{project_id}", response_model=ProjectOut)
+async def get_project(project_id: str, current_user: dict = Depends(get_current_user)):
+    doc = await projects_collection.find_one({"project_id": project_id})
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Proyecto no encontrado")
+    return _project_to_out(doc)
+
+
+@router.patch("/{project_id}", response_model=ProjectOut)
+async def update_project(
+    project_id: str, payload: ProjectUpdate, current_user: dict = Depends(require_admin)
+):
+    """Administrar (editar nombre/descripción) — solo admin."""
+    updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not updates:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No enviaste nada para actualizar")
+
+    doc = await projects_collection.find_one_and_update(
+        {"project_id": project_id},
+        {"$set": updates},
+        return_document=ReturnDocument.AFTER,
+    )
+    if doc is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Proyecto no encontrado")
+    return _project_to_out(doc)
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(project_id: str, current_user: dict = Depends(require_admin)):
+    """Solo admin. No borra documentos/embeddings ya indexados en el RAG,
+    solo lo quita del catálogo del backend."""
+    result = await projects_collection.delete_one({"project_id": project_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Proyecto no encontrado")
+    return None

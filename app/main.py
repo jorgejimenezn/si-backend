@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import ensure_indexes
-from app.routers import auth, documents, query, repositories, users
+from app.routers import auth, documents, proyectos, query, repositories, users
 
 app = FastAPI(
     title="Software Intelligence - Backend",
@@ -21,6 +21,7 @@ app.add_middleware(
 
 app.include_router(users.router)
 app.include_router(auth.router)
+app.include_router(proyectos.router)
 app.include_router(query.router)
 app.include_router(documents.router)
 app.include_router(repositories.router)

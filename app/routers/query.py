@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.database import conversations_collection, messages_collection
+from app.database import conversations_collection, messages_collection, projects_collection
 from app.dependencies import get_current_user
 from app.rag_client import RagApiError, query_rag
 from app.schemas import (
@@ -64,6 +64,13 @@ async def _get_or_create_conversation(
 @router.post("/query", response_model=QueryResponse)
 async def query(payload: QueryRequest, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
+
+    project = await projects_collection.find_one({"project_id": payload.project_id})
+    if project is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Ese project_id no existe en el catálogo. Pide la lista con GET /api/v1/projects.",
+        )
 
     conversation_id = await _get_or_create_conversation(
         payload.conversation_id, user_id, payload.project_id

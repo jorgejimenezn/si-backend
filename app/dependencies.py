@@ -51,3 +51,15 @@ async def get_current_user(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuario no encontrado")
 
     return user
+
+
+async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependencia para endpoints solo-admin: crear/administrar proyectos,
+    subir documentos y repositorios. Por ahora el rol se asigna a mano en Mongo
+    (users_collection.role = "admin"); no hay flujo de invitación."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Esta acción requiere permisos de administrador",
+        )
+    return current_user

@@ -77,3 +77,28 @@ class ConversationOut(BaseModel):
     project_id: str
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectCreate(BaseModel):
+    project_id: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=80,
+        description="Identificador que se usará al preguntar (ej. 'demo-final-1'). "
+        "Si se omite, se genera a partir del nombre.",
+    )
+    name: str = Field(..., min_length=2, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
+
+
+class ProjectOut(BaseModel):
+    project_id: str
+    name: str
+    description: str | None = None
+    created_by: str
+    created_at: datetime

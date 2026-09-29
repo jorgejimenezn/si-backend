@@ -3,7 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.config import settings
-from app.dependencies import get_current_user
+from app.dependencies import require_admin
+from app.database import projects_collection
 
 router = APIRouter(prefix="/api/v1/repositories", tags=["Repositorios"])
 
@@ -33,11 +34,19 @@ async def _call_rag(path: str, payload: dict, timeout: float = 60.0) -> dict:
 
 
 @router.post("/branches")
-async def list_branches(payload: BranchesRequest, current_user: dict = Depends(get_current_user)):
+async def list_branches(payload: BranchesRequest, current_user: dict = Depends(require_admin)):
+    """Solo un admin puede explorar ramas (paso previo a indexar un repo)."""
     return await _call_rag("/api/v1/repositories/branches", payload.model_dump())
 
 
 @router.post("/ingest")
-async def ingest_repository(payload: IngestRequest, current_user: dict = Depends(get_current_user)):
-    # Indexar un repo completo puede tardar mas que una consulta normal.
+async def ingest_repository(payload: IngestRequest, current_user: dict = Depends(require_admin)):
+    """Indexar un repo completo puede tardar mas que una consulta normal.
+    Solo un admin puede indexar repositorios."""
+    project = await projects_collection.find_one({"project_id": payload.project_id})
+    if project is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "Ese project_id no existe. Créalo primero con POST /api/v1/projects.",
+        )
     return await _call_rag("/api/v1/repositories/ingest", payload.model_dump(), timeout=180.0)
