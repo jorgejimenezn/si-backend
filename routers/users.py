@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo.errors import DuplicateKeyError
 
 from app.database import users_collection
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_admin
 from app.schemas import UserCreate, UserOut
 from app.security import hash_password
 
@@ -17,6 +17,7 @@ def _user_to_out(user: dict) -> UserOut:
         name=user["name"],
         email=user["email"],
         role=user.get("role", "user"),
+        created_at=user.get("created_at"),
     )
 
 
@@ -44,3 +45,11 @@ async def create_user(payload: UserCreate):
 @router.get("/me", response_model=UserOut)
 async def get_me(current_user: dict = Depends(get_current_user)):
     return _user_to_out(current_user)
+
+
+@router.get("", response_model=list[UserOut])
+async def list_users(current_user: dict = Depends(require_admin)):
+    """Listado de todos los usuarios registrados (sin password_hash). Solo admin."""
+    cursor = users_collection.find({}).sort("created_at", 1)
+    docs = await cursor.to_list(length=None)
+    return [_user_to_out(d) for d in docs]

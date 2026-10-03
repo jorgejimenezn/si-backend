@@ -15,6 +15,7 @@ class UserOut(BaseModel):
     name: str
     email: EmailStr
     role: str
+    created_at: datetime | None = None
 
 
 class LoginRequest(BaseModel):
