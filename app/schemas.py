@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field
 from datetime import datetime
@@ -15,7 +15,17 @@ class UserOut(BaseModel):
     name: str
     email: EmailStr
     role: str
+    active: bool = True
     created_at: datetime | None = None
+
+
+class UserUpdate(BaseModel):
+    role: Literal["user", "admin"] | None = None
+    active: bool | None = None
+
+
+class UserPasswordReset(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=128)
 
 
 class LoginRequest(BaseModel):

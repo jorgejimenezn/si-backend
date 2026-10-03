@@ -50,6 +50,12 @@ async def get_current_user(
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Usuario no encontrado")
 
+    if not user.get("active", True):
+        await sessions_collection.delete_one({"session_id": session_id})
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Tu cuenta está inactiva. Contacta a un administrador."
+        )
+
     return user
 
 

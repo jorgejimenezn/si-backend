@@ -34,6 +34,12 @@ async def login(payload: LoginRequest, request: Request):
         await _log_attempt(request, payload.email, success=False)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email o contraseña incorrectos")
 
+    if not user.get("active", True):
+        await _log_attempt(request, payload.email, success=False, user_id=str(user["_id"]))
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Tu cuenta está inactiva. Contacta a un administrador."
+        )
+
     await _log_attempt(request, payload.email, success=True, user_id=str(user["_id"]))
 
     session_id = new_session_id()
