@@ -1,9 +1,11 @@
+from datetime import datetime, timezone
+
 import httpx
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.config import settings
 from app.dependencies import require_admin
-from app.database import projects_collection
+from app.database import ingestions_collection, projects_collection
 
 router = APIRouter(prefix="/api/v1/documents", tags=["Documentos"])
 
@@ -48,4 +50,19 @@ async def ingest_documents(
             response.status_code, f"El RAG respondió con error: {response.text}"
         )
 
-    return response.json()
+    result = response.json()
+
+    await ingestions_collection.insert_one(
+        {
+            "project_id": project_id,
+            "type": "document",
+            "source": ", ".join(f.filename for f in files),
+            "branches": None,
+            "files_processed": len(files),
+            "chunks_created": result.get("total_chunks"),
+            "created_by": str(current_user["_id"]),
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+
+    return result

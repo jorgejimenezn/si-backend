@@ -5,10 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
-from app.database import projects_collection
+from app.database import ingestions_collection, projects_collection
 from app.dependencies import get_current_user, require_admin
-from app.rag_client import RagApiError, delete_project_index
-from app.schemas import ProjectCreate, ProjectIndexDeleteOut, ProjectOut, ProjectUpdate
+from app.rag_client import RagApiError, delete_project_index, get_project_sources
+from app.schemas import (
+    IngestionOut,
+    ProjectCreate,
+    ProjectIndexDeleteOut,
+    ProjectOut,
+    ProjectSourcesOut,
+    ProjectUpdate,
+)
 
 router = APIRouter(prefix="/api/v1/projects", tags=["Proyectos"])
 
@@ -68,6 +75,38 @@ async def get_project(project_id: str, current_user: dict = Depends(get_current_
     return _project_to_out(doc)
 
 
+@router.get("/{project_id}/sources", response_model=ProjectSourcesOut)
+async def get_sources(project_id: str, current_user: dict = Depends(get_current_user)):
+    """Todo lo indexado en el proyecto (repos con sus ramas/commits, documentos) con
+    conteo de fragmentos — lo que el frontend usa para llenar los selectores de
+    alcance de /query (branches, document, commit). Abierto a cualquier usuario
+    autenticado: a diferencia de /ingestions (quien/cuando se cargo, admin-only),
+    esto es lo que YA hay para preguntar, no un registro de auditoria."""
+    project = await projects_collection.find_one({"project_id": project_id})
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Proyecto no encontrado")
+
+    try:
+        result = await get_project_sources(project_id)
+    except RagApiError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+
+    return ProjectSourcesOut(**result)
+
+
+@router.get("/{project_id}/ingestions", response_model=list[IngestionOut])
+async def list_project_ingestions(project_id: str, current_user: dict = Depends(require_admin)):
+    """Historial de que se ha indexado en un proyecto (documentos y repos), mas
+    reciente primero. Para el panel de administracion de proyectos. Solo admin."""
+    project = await projects_collection.find_one({"project_id": project_id})
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Proyecto no encontrado")
+
+    cursor = ingestions_collection.find({"project_id": project_id}).sort("created_at", -1)
+    docs = await cursor.to_list(length=None)
+    return [IngestionOut(**d) for d in docs]
+
+
 @router.patch("/{project_id}", response_model=ProjectOut)
 async def update_project(
     project_id: str, payload: ProjectUpdate, current_user: dict = Depends(require_admin)
@@ -119,5 +158,7 @@ async def delete_project(project_id: str, current_user: dict = Depends(require_a
         await delete_project_index(project_id)
     except RagApiError:
         pass  # el catálogo ya se borró; el índice huérfano no es accesible vía /query
+
+    await ingestions_collection.delete_many({"project_id": project_id})
 
     return None

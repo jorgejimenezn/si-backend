@@ -14,6 +14,7 @@ login_history_collection = db["login_history"]
 conversations_collection = db["conversations"]
 messages_collection = db["messages"]
 projects_collection = db["projects"]
+ingestions_collection = db["ingestions"]
 
 
 async def _safe_create_index(collection, *args, **kwargs):
@@ -53,3 +54,7 @@ async def ensure_indexes():
     # Catalogo de proyectos (roles): el project_id es el identificador de negocio
     # (el que usan usuarios y el RAG), no el _id de Mongo.
     await _safe_create_index(projects_collection, "project_id", unique=True)
+
+    # Historial de ingestas (que se subio a cada proyecto y cuando), para el
+    # panel de administracion de proyectos.
+    await _safe_create_index(ingestions_collection, [("project_id", 1), ("created_at", -1)])

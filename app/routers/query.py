@@ -86,9 +86,15 @@ async def query(payload: QueryRequest, current_user: dict = Depends(get_current_
             question=payload.question,
             conversation_history=history,
             branches=payload.branches,
+            document=payload.document,
+            commit=payload.commit,
+            repository=payload.repository,
+            debug=payload.debug,
         )
     except RagApiError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, exc.detail) from exc
+        # Se propaga el status real del RAG (422 combinacion invalida, 409
+        # commit/rama/documento no indexado, etc.) en vez de aplanarlo a 502.
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
     now = datetime.now(timezone.utc)
     await messages_collection.insert_one(
@@ -117,6 +123,7 @@ async def query(payload: QueryRequest, current_user: dict = Depends(get_current_
         provider=rag_response.get("provider"),
         model=rag_response.get("model"),
         response_time_ms=rag_response.get("response_time_ms"),
+        debug_matches=rag_response.get("debug_matches"),
     )
 
 
@@ -143,7 +150,7 @@ async def compare(payload: CompareRequest, current_user: dict = Depends(get_curr
             question=payload.question,
         )
     except RagApiError as exc:
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, exc.detail) from exc
+        raise HTTPException(exc.status_code, exc.detail) from exc
 
     # Se registra como una conversacion nueva (cumple "registrar las consultas
     # realizadas"), consultable luego por GET /conversations y sus mensajes.

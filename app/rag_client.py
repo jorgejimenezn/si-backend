@@ -17,14 +17,30 @@ async def query_rag(
     question: str,
     conversation_history: list[dict],
     branches: list[str] | None = None,
+    document: str | None = None,
+    commit: str | None = None,
+    repository: str | None = None,
+    debug: bool = False,
 ) -> dict:
-    payload = {
+    # El RAG solo acepta UN alcance a la vez (todo el proyecto, branches,
+    # document, o commit [+ repository]); se manda solo lo que venga con
+    # contenido para no disparar su validacion de combinacion invalida
+    # (422) cuando el cliente simplemente dejo branches en su default [].
+    payload: dict = {
         "project_id": project_id,
         "question": question,
-        "branches": branches or [],
         "conversation_history": conversation_history,
-        "debug": False,
+        "debug": debug,
     }
+    if branches:
+        payload["branches"] = branches
+    if document:
+        payload["document"] = document
+    if commit:
+        payload["commit"] = commit
+    if repository:
+        payload["repository"] = repository
+
     url = f"{settings.rag_api_base_url}/api/v1/query"
 
     try:
@@ -95,6 +111,67 @@ async def get_rag_metrics() -> dict:
     url = f"{settings.rag_api_base_url}/api/v1/metrics"
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(url)
+    except httpx.RequestError as exc:
+        raise RagApiError(502, f"No se pudo contactar al servicio RAG: {exc}") from exc
+
+    if response.status_code != 200:
+        raise RagApiError(response.status_code, f"El RAG respondió con error: {response.text}")
+
+    return response.json()
+
+
+async def list_commits(repository_url: str, branch: str | None, limit: int) -> dict:
+    """Commits recientes de una rama remota (no indexa nada, solo para elegir SHA)."""
+    payload: dict = {"repository_url": repository_url, "limit": limit}
+    if branch:
+        payload["branch"] = branch
+    url = f"{settings.rag_api_base_url}/api/v1/repositories/commits"
+
+    try:
+        # El clon es superficial pero proporcional a "limit"; en repos grandes
+        # con limit alto puede tardar igual que listar ramas.
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, json=payload)
+    except httpx.RequestError as exc:
+        raise RagApiError(502, f"No se pudo contactar al servicio RAG: {exc}") from exc
+
+    if response.status_code != 200:
+        raise RagApiError(response.status_code, f"El RAG respondió con error: {response.text}")
+
+    return response.json()
+
+
+async def ingest_commits(project_id: str, repository_url: str, commits: list[str]) -> dict:
+    """Indexa hasta 10 commits puntuales (codigo + metadata + diff) sin tocar
+    otras ramas/commits ya indexados. Clona el historial completo, puede tardar
+    en repos grandes."""
+    payload = {
+        "project_id": project_id,
+        "repository_url": repository_url,
+        "commits": commits,
+    }
+    url = f"{settings.rag_api_base_url}/api/v1/repositories/commits/ingest"
+
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(url, json=payload)
+    except httpx.RequestError as exc:
+        raise RagApiError(502, f"No se pudo contactar al servicio RAG: {exc}") from exc
+
+    if response.status_code != 200:
+        raise RagApiError(response.status_code, f"El RAG respondió con error: {response.text}")
+
+    return response.json()
+
+
+async def get_project_sources(project_id: str) -> dict:
+    """Todo lo indexado en un proyecto (repos+ramas+commits, documentos) con sus
+    conteos de fragmentos. Un proyecto sin indice da 200 con listas vacias, no 404."""
+    url = f"{settings.rag_api_base_url}/api/v1/projects/{project_id}/sources"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url)
     except httpx.RequestError as exc:
         raise RagApiError(502, f"No se pudo contactar al servicio RAG: {exc}") from exc
